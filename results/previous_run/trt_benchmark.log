@@ -1,0 +1,23 @@
+[*] Device: cuda  |  CUDA: Orin
+[*] Model:  best_edge_cwt_model.pth
+
+── PyTorch benchmarks ─────────────────────────────────────────────
+  PyTorch FP32  batch=1                    225.0 epochs/sec  (4.444 ms/batch)
+  PyTorch FP32  batch=32                  7064.5 epochs/sec  (4.530 ms/batch)
+  PyTorch FP16  batch=1                    179.1 epochs/sec  (5.582 ms/batch)
+  PyTorch FP16  batch=32                  5599.9 epochs/sec  (5.714 ms/batch)
+
+── ONNX export ────────────────────────────────────────────────────
+/home/leggo/AIResearch/VOGBasedDetectionSystem/src/export_trt.py:130: DeprecationWarning: You are using the legacy TorchScript-based ONNX export. Starting in PyTorch 2.9, the new torch.export-based ONNX exporter has become the default. Learn more about the new export logic: https://docs.pytorch.org/docs/stable/onnx_export.html. For exporting control flow: https://pytorch.org/tutorials/beginner/onnx/export_control_flow_model_to_onnx_tutorial.html
+  torch.onnx.export(
+[+] ONNX exported → edge_cwt_model.onnx
+
+── TensorRT build ─────────────────────────────────────────────────
+[*] Building TRT engine: /usr/src/tensorrt/bin/trtexec --onnx=edge_cwt_model.onnx --saveEngine=edge_cwt_model_fp16.engine --fp16 --memPoolSize=workspace:4096MiB --verbose=false
+[+] TRT engine saved → edge_cwt_model_fp16.engine
+
+── TensorRT benchmarks ────────────────────────────────────────────
+  TRT FP16  batch=1                       8510.4 epochs/sec  (0.118 ms/batch)
+  TRT FP16  batch=32                    272546.9 epochs/sec  (0.117 ms/batch)
+
+[+] Done.
