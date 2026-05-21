@@ -383,3 +383,7 @@ The current architecture trains from scratch on the available cohort. With the a
 2. **Fine-tuning** on site-specific or protocol-specific cohorts by freezing the convolutional backbone and retraining the classifier head
 
 This mirrors the standard practice in transfer learning and is expected to substantially improve generalization given the small per-cohort sample sizes.
+
+--
+
+Develop version of readme
