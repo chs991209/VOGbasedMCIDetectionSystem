@@ -17,6 +17,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader, Subset
+from sklearn.model_selection import GroupShuffleSplit
 
 # =========================================================================
 # CBAM: Convolutional Block Attention Module
@@ -64,21 +65,6 @@ class CBAM(nn.Module):
     def forward(self, x):
         return self.sa(self.ca(x))
 
-# =========================================================================
-# Focal Loss: down-weights easy samples so the model focuses on hard
-# HC/MCI boundary cases. Replaces CrossEntropyLoss with label smoothing.
-# gamma=2.0 is standard; alpha mirrors class-weight balancing.
-# =========================================================================
-class FocalLoss(nn.Module):
-    def __init__(self, alpha=None, gamma=2.0):
-        super().__init__()
-        self.alpha = alpha  # class-weight tensor (same role as CE weight)
-        self.gamma = gamma
-
-    def forward(self, inputs, targets):
-        ce = F.cross_entropy(inputs, targets, weight=self.alpha, reduction='none')
-        pt = torch.exp(-ce)
-        return ((1 - pt) ** self.gamma * ce).mean()
 
 # =========================================================================
 # [Layer 1] Data Engineering: Event-Locked CWT Pipeline
@@ -101,11 +87,15 @@ class EventLockedCWTPipeline:
         self.target_time_bins   = target_time_bins
         self.w                  = w_morlet
         self.artifact_threshold = artifact_threshold
-        # Dual-band: 0-10Hz (cognitive delay) + 30-60Hz (micro-tremors)
-        # Middle 10-30Hz band excluded — not clinically informative for MCI
+        # Dual-band: 0.5-10Hz (cognitive latency) + 30-60Hz (micro-tremors)
+        # 10-30Hz excluded: cardiopulmonary + muscle fasciculation noise floor.
+        # low/high bin split scales with freq_bins so dimensionality reduction
+        # keeps both clinical bands proportionally represented.
         if dual_band:
-            low_band  = np.logspace(np.log10(0.5), np.log10(10.0), 25)
-            high_band = np.logspace(np.log10(30.0), np.log10(60.0), 15)
+            low_bins  = int(freq_bins * 0.6)
+            high_bins = freq_bins - low_bins
+            low_band  = np.logspace(np.log10(0.5),  np.log10(10.0), low_bins)
+            high_band = np.logspace(np.log10(30.0), np.log10(60.0), high_bins)
             self.frequencies = np.concatenate([low_band, high_band])
         else:
             self.frequencies = np.logspace(np.log10(min_freq), np.log10(max_freq), freq_bins)
@@ -392,11 +382,84 @@ class EdgeCWTClassifier(nn.Module):
         return self.classifier(torch.flatten(x, 1))
 
 # =========================================================================
+# [Hypothesis A] PureCNNClassifier — no attention, reduced overfitting risk
+#
+# Rationale: CBAM may overfit to noise at N=37. This ablation strips all
+# attention modules, leaving only Conv→BN→ReLU→MaxPool blocks.
+# AdaptiveAvgPool2d(1) makes the FC head agnostic to input spatial size,
+# so the same class works for both [4,40,100] and [4,20,50] inputs.
+#
+# Input:  [B, 4, 20, 50]
+# Block1: Conv(4→16)  + BN + ReLU + MaxPool(2,2)   → [B, 16, 10, 25]
+# Block2: Conv(16→32) + BN + ReLU + MaxPool(1,2)   → [B, 32, 10, 12]  ← freq axis preserved
+# Block3: Conv(32→64) + BN + ReLU  (no pool)       → [B, 64, 10, 12]  ← spatial kept intact
+# GAP → [B, 64]  →  Dropout + FC(64→32) + ReLU + FC(32→num_classes)
+# =========================================================================
+class PureCNNClassifier(nn.Module):
+    def __init__(self, num_classes=2, in_channels=4):
+        super().__init__()
+        self.features = nn.Sequential(
+            nn.Conv2d(in_channels, 16, kernel_size=3, padding=1),
+            nn.BatchNorm2d(16), nn.ReLU(inplace=True),
+            nn.MaxPool2d(2, 2), # [B, 16, 10, 25]
+
+            nn.Conv2d(16, 32, kernel_size=3, padding=1),
+            nn.BatchNorm2d(32), nn.ReLU(inplace=True),
+            nn.MaxPool2d((1, 2)), # 주파수 축 보존, 시간 축만 압축 -> [B, 32, 10, 12]
+
+            nn.Conv2d(32, 64, kernel_size=3, padding=1),
+            nn.BatchNorm2d(64), nn.ReLU(inplace=True),
+            # 세 번째 MaxPool 제거. 충분한 공간 해상도 보존
+
+            nn.AdaptiveAvgPool2d(1),
+        )
+        self.classifier = nn.Sequential(
+            nn.Dropout(p=0.3),
+            nn.Linear(64, 32),
+            nn.ReLU(inplace=True),
+            nn.Linear(32, num_classes),
+        )
+
+    def get_embedding(self, x) -> torch.Tensor:
+        return self.features(x).flatten(1)
+
+    def forward(self, x):
+        return self.classifier(self.get_embedding(x))
+
+# =========================================================================
+# [Hypothesis B] BinaryCosineLoss — metric learning via CosineEmbeddingLoss
+#
+# A learnable HC prototype vector is defined in embedding space (R^64).
+# HC samples (y=0) should be SIMILAR to the prototype  → cos_y = +1
+# MCI samples (y=1) should be DISSIMILAR               → cos_y = -1
+#
+# The mapping  cos_y = 1 - 2*y  achieves: 0→+1, 1→-1.
+#
+# CosineEmbeddingLoss:
+#   y=+1  →  loss = 1 − cos(emb, proto)         (pull toward prototype)
+#   y=−1  →  loss = max(0, cos(emb, proto) − m)  (push away from prototype)
+#
+# NOTE: NOT plugged into the main training loop yet.
+# To use: replace CrossEntropyLoss in trainer + call model.get_embedding(x)
+# instead of model(x) as the loss input.
+# =========================================================================
+class BinaryCosineLoss(nn.Module):
+    def __init__(self, embed_dim=64, margin=0.0):
+        super().__init__()
+        self.prototype = nn.Parameter(torch.randn(1, embed_dim))
+        self.cos_loss  = nn.CosineEmbeddingLoss(margin=margin, reduction='mean')
+
+    def forward(self, embeddings: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
+        cos_y = (1 - 2 * targets.float())                     # 0→+1, 1→-1
+        proto = self.prototype.expand(embeddings.size(0), -1)
+        return self.cos_loss(embeddings, proto, cos_y)
+
+# =========================================================================
 # [Layer 4a] Model Trainer
 # Enhancements:
 #   - AugmentedSubset applied to training split only
 #   - Label smoothing (0.1) in CrossEntropyLoss
-#   - Early stopping with patience=10
+#   - Early stopping with patience=25
 #   - Default epochs raised to 50
 #   - Device priority: CUDA → MPS (Apple Silicon) → CPU
 # =========================================================================
@@ -423,8 +486,8 @@ class ModelTrainer:
         mci_subjects = [s for s in subject_to_idx if dataset.y[subject_to_idx[s][0]].item() == 1]
         random.shuffle(hc_subjects); random.shuffle(mci_subjects)
 
-        hc_val_n  = max(1, int(len(hc_subjects)  * val_ratio))
-        mci_val_n = max(1, int(len(mci_subjects) * val_ratio))
+        hc_val_n  = max(1, round(len(hc_subjects)  * val_ratio))
+        mci_val_n = max(1, round(len(mci_subjects) * val_ratio))
 
         val_subjects   = set(hc_subjects[:hc_val_n]   + mci_subjects[:mci_val_n])
         train_subjects = set(hc_subjects[hc_val_n:]   + mci_subjects[mci_val_n:])
@@ -439,12 +502,12 @@ class ModelTrainer:
 
         return Subset(dataset, train_idx), Subset(dataset, val_idx)
 
-    def train_model(self, dataset, epochs=50, batch_size=32, patience=10):
+    def train_model(self, dataset, epochs=50, batch_size=32, patience=25):
         print(f"[*] 학습 시작 (디바이스: {self.device})")
 
-        train_raw, val_subset = self._subject_stratified_split(dataset)
+        train_raw, val_subset = self._subject_stratified_split(dataset, val_ratio=0.3)
         # SpecAugment applied to training data only
-        train_subset = AugmentedSubset(train_raw)
+        train_subset = AugmentedSubset(train_raw, f_mask_param=3, t_mask_param=5, p=0.25)
         train_loader = DataLoader(train_subset, batch_size=batch_size, shuffle=True,  drop_last=True)
         val_loader   = DataLoader(val_subset,   batch_size=batch_size, shuffle=False)
 
@@ -452,10 +515,9 @@ class ModelTrainer:
         total         = len(dataset)
         alpha = torch.tensor(
             [total / (2 * label_counts[i]) for i in range(2)], dtype=torch.float32
-        )
-        alpha = (alpha / alpha.sum()).to(self.device)   # normalize → sums to 1
-        criterion = FocalLoss(alpha=alpha, gamma=1.5)
-        print(f"[*] Focal alpha — HC: {alpha[0]:.3f}, MCI: {alpha[1]:.3f}  gamma=1.5")
+        ).to(self.device)
+        criterion = nn.CrossEntropyLoss(weight=alpha)
+        print(f"[*] CE weight — HC: {alpha[0]:.3f}, MCI: {alpha[1]:.3f}")
 
         scheduler      = optim.lr_scheduler.CosineAnnealingLR(self.optimizer, T_max=epochs)
         best_val_loss  = float('inf')
@@ -581,7 +643,7 @@ class JetsonInferenceEngine:
             if torch.cuda.is_available():            self._pt_device = torch.device("cuda")
             elif torch.backends.mps.is_available():  self._pt_device = torch.device("mps")
             else:                                    self._pt_device = torch.device("cpu")
-            self._pt_model = EdgeCWTClassifier(num_classes=2, in_channels=4)
+            self._pt_model = PureCNNClassifier(num_classes=2, in_channels=4)
             if os.path.exists(model_path):
                 self._pt_model.load_state_dict(
                     torch.load(model_path, map_location=self._pt_device, weights_only=True)
@@ -743,26 +805,24 @@ class XAIVisualizer:
         plt.show()
 
 # =========================================================================
-# [Layer 6] LOSO-CV Evaluator (enhanced)
-# Enhancements:
-#   - AugmentedSubset applied to each training fold
-#   - Label smoothing (0.1) in CrossEntropyLoss
-#   - Default epochs raised to 50
-#   - Threshold optimisation: finds threshold maximising balanced accuracy
+# [Layer 6] MonteCarloGroupEvaluator
+#
+# Replaces LOSO (N=1 test set, high variance) and RepeatedGroupKFold.
+# GroupShuffleSplit(n_splits=30, test_size=0.3): each split draws ~30%
+# of subjects as test set; subjects never leak across train/test.
+# Subject-level soft voting aggregates window-level probabilities.
+# 30 random seeds → Mean ± Std for Accuracy, Sensitivity, Specificity, AUROC.
 # =========================================================================
-class LOSOCrossValidator:
-    def __init__(self, dataset, device="auto", epochs=50, batch_size=32):
-        if device in ("auto", "cuda"):
-            if torch.cuda.is_available():            self.device = torch.device("cuda")
-            elif torch.backends.mps.is_available():  self.device = torch.device("mps")
-            else:                                    self.device = torch.device("cpu")
-        else:
-            self.device = torch.device(device)
+class MonteCarloGroupEvaluator:
+    def __init__(self, dataset, epochs=50, batch_size=32, n_splits=30):
+        if torch.cuda.is_available():            self.device = torch.device("cuda")
+        elif torch.backends.mps.is_available():  self.device = torch.device("mps")
+        else:                                    self.device = torch.device("cpu")
         self.dataset    = dataset
         self.epochs     = epochs
         self.batch_size = batch_size
+        self.n_splits   = n_splits
 
-    # ------------------------------------------------------------------
     @staticmethod
     def _auroc(true_labels, scores):
         order    = np.argsort(scores)[::-1]
@@ -780,27 +840,23 @@ class LOSOCrossValidator:
             fprs.append(fp / n_neg)
         return float(np.trapezoid(tprs, fprs))
 
-    # ------------------------------------------------------------------
-    def _train_one_fold(self, train_idx):
-        train_raw    = Subset(self.dataset, train_idx)
-        # SpecAugment on training fold only
-        train_subset = AugmentedSubset(train_raw)
+    def _train_fold(self, train_idx):
+        train_subset = AugmentedSubset(Subset(self.dataset, train_idx))
         train_loader = DataLoader(train_subset, batch_size=self.batch_size,
                                   shuffle=True, drop_last=True)
 
-        model     = EdgeCWTClassifier(num_classes=2, in_channels=4).to(self.device)
+        model     = PureCNNClassifier(num_classes=2, in_channels=4).to(self.device)
         use_amp   = self.device.type == "cuda"
         scaler    = torch.amp.GradScaler('cuda') if use_amp else None
         optimizer = optim.AdamW(model.parameters(), lr=1e-3, weight_decay=1e-4)
         scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=self.epochs)
 
-        label_counts  = Counter(self.dataset.y[train_idx].tolist())
-        total         = len(train_idx)
+        label_counts = Counter(self.dataset.y[train_idx].tolist())
+        total        = len(train_idx)
         alpha = torch.tensor(
             [total / (2 * label_counts[i]) for i in range(2)], dtype=torch.float32
-        )
-        alpha = (alpha / alpha.sum()).to(self.device)   # normalize → sums to 1
-        criterion = FocalLoss(alpha=alpha, gamma=1.5)
+        ).to(self.device)
+        criterion = nn.CrossEntropyLoss(weight=alpha)
 
         for _ in range(self.epochs):
             model.train()
@@ -810,153 +866,93 @@ class LOSOCrossValidator:
                 with torch.amp.autocast(device_type=self.device.type, enabled=use_amp):
                     loss = criterion(model(inputs), labels)
                 if use_amp:
-                    scaler.scale(loss).backward(); scaler.step(optimizer); scaler.update()
+                    scaler.scale(loss).backward()
+                    scaler.step(optimizer); scaler.update()
                 else:
                     loss.backward(); optimizer.step()
             scheduler.step()
+
         return model
 
-    # ------------------------------------------------------------------
-    def _infer_subject(self, model, test_idx):
-        test_loader = DataLoader(Subset(self.dataset, test_idx),
-                                 batch_size=self.batch_size, shuffle=False)
-        all_probs = []
+    def _infer_subjects(self, model, test_idx, subj_ids):
         model.eval()
-        use_amp = self.device.type == "cuda"
+        subj_probs  = defaultdict(list)
+        subj_labels = {}
+        loader  = DataLoader(Subset(self.dataset, test_idx),
+                             batch_size=self.batch_size, shuffle=False)
+        offset  = 0
         with torch.no_grad():
-            for inputs, _ in test_loader:
-                inputs = inputs.to(self.device)
-                with torch.amp.autocast(device_type=self.device.type, enabled=use_amp):
-                    probs = F.softmax(model(inputs), dim=1)
-                all_probs.append(probs.cpu())
-        mean_prob = torch.cat(all_probs, dim=0).mean(dim=0)
-        return torch.argmax(mean_prob).item(), mean_prob[1].item()
+            for inputs, labels in loader:
+                probs = torch.softmax(model(inputs.to(self.device)), dim=1)[:, 1].cpu().numpy()
+                for sid, p, l in zip(subj_ids[offset:offset + len(labels)],
+                                     probs, labels.numpy()):
+                    subj_probs[sid].append(float(p))
+                    subj_labels[sid] = int(l)
+                offset += len(labels)
+        return {sid: (subj_labels[sid], float(np.mean(subj_probs[sid])))
+                for sid in subj_probs}
 
-    # ------------------------------------------------------------------
     def run(self):
-        subject_to_idx = defaultdict(list)
-        for i, sid in enumerate(self.dataset.subject_ids):
-            subject_to_idx[sid].append(i)
+        y_arr    = self.dataset.y.numpy()
+        subj_ids = np.array(self.dataset.subject_ids)
 
-        all_subjects = list(subject_to_idx.keys())
-        N            = len(all_subjects)
-        all_indices  = set(range(len(self.dataset)))
+        subj_to_label = {}
+        for i, sid in enumerate(subj_ids):
+            if sid not in subj_to_label:
+                subj_to_label[sid] = y_arr[i]
 
-        records = []
-        print(f"[*] LOSO-CV 시작 — {N} subjects, device={self.device}\n")
+        unique_hc  = [s for s, l in subj_to_label.items() if l == 0]
+        unique_mci = [s for s, l in subj_to_label.items() if l == 1]
 
-        for fold, subject in enumerate(all_subjects):
-            test_idx   = subject_to_idx[subject]
-            train_idx  = list(all_indices - set(test_idx))
-            true_label = self.dataset.y[test_idx[0]].item()
+        fold_metrics = []
+        print(f"[*] Stratified Monte Carlo Group Eval — {self.n_splits} splits, device={self.device}\n")
 
-            model = self._train_one_fold(train_idx)
-            pred_label, mci_prob = self._infer_subject(model, test_idx)
+        for split_num in range(1, self.n_splits + 1):
+            random.seed(split_num * 42)
+            np.random.seed(split_num * 42)
 
-            mark     = "✓" if true_label == pred_label else "✗"
-            true_str = "MCI" if true_label else "HC "
-            pred_str = "MCI" if pred_label else "HC "
-            print(f"  [{fold+1:02d}/{N}] {mark}  True={true_str}  Pred={pred_str}  "
-                  f"MCI_prob={mci_prob:.3f}  epochs={len(test_idx):4d}  ({subject[:24]})")
-            records.append((subject, true_label, pred_label, mci_prob, len(test_idx)))
+            hc_shuffled  = random.sample(unique_hc,  len(unique_hc))
+            mci_shuffled = random.sample(unique_mci, len(unique_mci))
 
-        return self._report(records)
+            n_hc_test  = max(1, round(len(hc_shuffled)  * 0.3))
+            n_mci_test = max(1, round(len(mci_shuffled) * 0.3))
 
-    # ------------------------------------------------------------------
-    def _report(self, records):
-        _, true_arr, pred_arr, prob_arr, _ = zip(*records)
-        true_arr = np.array(true_arr)
-        pred_arr = np.array(pred_arr)
-        prob_arr = np.array(prob_arr)
+            test_subjects = set(hc_shuffled[:n_hc_test] + mci_shuffled[:n_mci_test])
 
-        def _metrics(ta, pa):
-            tp = int(np.sum((ta==1)&(pa==1))); tn = int(np.sum((ta==0)&(pa==0)))
-            fp = int(np.sum((ta==0)&(pa==1))); fn = int(np.sum((ta==1)&(pa==0)))
-            acc  = (tp+tn)/len(ta)
-            sens = tp/(tp+fn) if tp+fn>0 else 0.0
-            spec = tn/(tn+fp) if tn+fp>0 else 0.0
-            return tp, tn, fp, fn, acc, sens, spec
+            test_idx  = [i for i, sid in enumerate(subj_ids) if sid     in test_subjects]
+            train_idx = [i for i, sid in enumerate(subj_ids) if sid not in test_subjects]
 
-        tp, tn, fp, fn, accuracy, sensitivity, specificity = _metrics(true_arr, pred_arr)
-        balanced_acc = (sensitivity + specificity) / 2
-        auroc        = self._auroc(true_arr, prob_arr)
+            model      = self._train_fold(train_idx)
+            subj_preds = self._infer_subjects(model, test_idx, subj_ids)
 
-        # ── Threshold optimisation ────────────────────────────────────
-        best_t, best_bacc = 0.5, balanced_acc
-        for t in np.linspace(0.1, 0.9, 81):
-            pa_t = (prob_arr > t).astype(int)
-            _, _, _, _, _, s_, sp_ = _metrics(true_arr, pa_t)
-            b_ = (s_ + sp_) / 2
-            if b_ > best_bacc:
-                best_bacc = b_; best_t = t
-        pa_opt = (prob_arr > best_t).astype(int)
-        tp_o, tn_o, fp_o, fn_o, acc_o, sens_o, spec_o = _metrics(true_arr, pa_opt)
+            true_arr = np.array([v[0] for v in subj_preds.values()])
+            prob_arr = np.array([v[1] for v in subj_preds.values()])
+            pred_arr = (prob_arr > 0.5).astype(int)
 
-        print("\n" + "=" * 56)
-        print("  LOSO-CV  Summary")
-        print("=" * 56)
-        n_hc  = int(np.sum(true_arr == 0))
-        n_mci = int(np.sum(true_arr == 1))
-        print(f"  Subjects     : {len(records)}  (HC={n_hc}, MCI={n_mci})")
-        print(f"  ── Threshold = 0.50 (default) ──")
-        print(f"  Accuracy     : {accuracy:.3f}   ({tp+tn}/{len(records)})")
-        print(f"  Sensitivity  : {sensitivity:.3f}   TP={tp}  FN={fn}")
-        print(f"  Specificity  : {specificity:.3f}   TN={tn}  FP={fp}")
-        print(f"  Balanced Acc : {balanced_acc:.3f}")
-        print(f"  AUROC        : {auroc:.3f}")
-        print(f"  ── Threshold = {best_t:.2f} (optimised for balanced acc) ──")
-        print(f"  Accuracy     : {acc_o:.3f}   ({tp_o+tn_o}/{len(records)})")
-        print(f"  Sensitivity  : {sens_o:.3f}   TP={tp_o}  FN={fn_o}")
-        print(f"  Specificity  : {spec_o:.3f}   TN={tn_o}  FP={fp_o}")
-        print(f"  Balanced Acc : {best_bacc:.3f}")
-        print("=" * 56)
+            tp = int(np.sum((true_arr == 1) & (pred_arr == 1)))
+            tn = int(np.sum((true_arr == 0) & (pred_arr == 0)))
+            fp = int(np.sum((true_arr == 0) & (pred_arr == 1)))
+            fn = int(np.sum((true_arr == 1) & (pred_arr == 0)))
 
-        # ── ROC curve + probability strip ────────────────────────────
-        order    = np.argsort(prob_arr)[::-1]
-        y_sorted = true_arr[order]
-        n_pos    = int(np.sum(true_arr == 1))
-        n_neg    = int(np.sum(true_arr == 0))
-        tp_r = fp_r = 0
-        tprs, fprs = [0.0], [0.0]
-        for lbl in y_sorted:
-            if lbl == 1: tp_r += 1
-            else:        fp_r += 1
-            tprs.append(tp_r / n_pos); fprs.append(fp_r / n_neg)
+            acc   = (tp + tn) / len(true_arr)
+            sens  = tp / (tp + fn) if tp + fn > 0 else 0.0
+            spec  = tn / (tn + fp) if tn + fp > 0 else 0.0
+            auroc = self._auroc(true_arr, prob_arr)
 
-        fig, axes = plt.subplots(1, 2, figsize=(12, 5))
+            fold_metrics.append(dict(acc=acc, sens=sens, spec=spec, auroc=auroc))
+            print(f"  [{split_num:02d}/{self.n_splits}] "
+                  f"Acc={acc:.3f}  Sens={sens:.3f}  Spec={spec:.3f}  AUROC={auroc:.3f}")
 
-        axes[0].plot(fprs, tprs, 'b-o', markersize=5, label=f'AUROC = {auroc:.3f}')
-        axes[0].plot([0, 1], [0, 1], 'k--', alpha=0.4, label='Random')
-        axes[0].fill_between(fprs, tprs, alpha=0.1)
-        axes[0].set_xlabel('1 − Specificity (FPR)', fontsize=12)
-        axes[0].set_ylabel('Sensitivity (TPR)', fontsize=12)
-        axes[0].set_title('LOSO-CV ROC Curve', fontsize=13)
-        axes[0].legend(fontsize=11); axes[0].grid(alpha=0.3)
+        accs   = [m['acc']   for m in fold_metrics]
+        senss  = [m['sens']  for m in fold_metrics]
+        specs  = [m['spec']  for m in fold_metrics]
+        aurocs = [m['auroc'] for m in fold_metrics]
 
-        hc_probs  = prob_arr[true_arr == 0]
-        mci_probs = prob_arr[true_arr == 1]
-        axes[1].scatter(hc_probs,  np.zeros_like(hc_probs)  + 0.15,
-                        color='steelblue', s=90, label=f'HC  (n={n_neg})', zorder=3, alpha=0.85)
-        axes[1].scatter(mci_probs, np.zeros_like(mci_probs) + 0.85,
-                        color='tomato',    s=90, label=f'MCI (n={n_pos})', zorder=3, alpha=0.85)
-        axes[1].axvline(0.5,    color='gray',   linestyle='--', linewidth=1.2, label='default=0.5')
-        axes[1].axvline(best_t, color='orange', linestyle=':',  linewidth=1.5,
-                        label=f'optimal={best_t:.2f}')
-        axes[1].set_xlim(-0.05, 1.05); axes[1].set_ylim(0, 1)
-        axes[1].set_yticks([0.15, 0.85]); axes[1].set_yticklabels(['HC', 'MCI'], fontsize=12)
-        axes[1].set_xlabel('Soft-vote MCI probability', fontsize=12)
-        axes[1].set_title('Per-subject MCI probability', fontsize=13)
-        axes[1].legend(fontsize=10); axes[1].grid(alpha=0.3)
+        print("\n" + "=" * 60)
+        print(f"  Stratified Monte Carlo Eval (Acc: {np.mean(accs):.3f} ± {np.std(accs):.3f})")
+        print("=" * 60)
+        return dict(accuracy=(np.mean(accs), np.std(accs)), fold_metrics=fold_metrics)
 
-        plt.tight_layout()
-        plt.savefig('../loso_results.png', dpi=150, bbox_inches='tight')
-        print("[+] Saved: ../loso_results.png")
-        plt.show()
-
-        return dict(accuracy=accuracy, sensitivity=sensitivity, specificity=specificity,
-                    balanced_accuracy=balanced_acc, auroc=auroc,
-                    opt_threshold=best_t, opt_balanced_acc=best_bacc,
-                    records=records)
 
 def save_calibration_data(dataset, out_path: str = "int8_calibration_data.npy", n: int = 200):
     """Save up to n random CWT tensors from dataset for INT8 TRT calibration."""
@@ -970,12 +966,12 @@ if __name__ == "__main__":
     DATA_DIR = Path("../data")
 
     pipeline_config = {
-        "pre_stimulus_sec":  0.2,
-        "post_stimulus_sec": 0.8,
-        "freq_bins":         40,      # 25 low-band + 15 high-band bins
-        "dual_band":         True,    # 0.5-10Hz (cognitive delay) + 30-60Hz (micro-tremors)
-        "target_time_bins":  100,
-        "w_morlet":          5.0,
+        "pre_stimulus_sec":   0.2,
+        "post_stimulus_sec":  0.8,
+        "freq_bins":          20,     # Hypothesis A: reduced resolution — 12 low + 8 high bins
+        "dual_band":          True,   # preserves 0.5-10Hz + 30-60Hz, excludes 10-30Hz noise
+        "target_time_bins":   50,     # Hypothesis A: reduced dimensionality (was 100)
+        "w_morlet":           5.0,
         "artifact_threshold": 30.0,
     }
     pipeline = EventLockedCWTPipeline(**pipeline_config)
@@ -1002,14 +998,14 @@ if __name__ == "__main__":
             # --- Save calibration data for INT8 TRT export ---
             save_calibration_data(dataset, "int8_calibration_data.npy", n=200)
 
-            # --- Single-split Training (quick baseline + saves best checkpoint) ---
-            model   = EdgeCWTClassifier(num_classes=2, in_channels=4)
+            # --- Single-split Training (baseline checkpoint) ---
+            model   = PureCNNClassifier(num_classes=2, in_channels=4)
             trainer = ModelTrainer(model)
-            trainer.train_model(dataset, epochs=50, batch_size=32, patience=10)
+            trainer.train_model(dataset, epochs=50, batch_size=32, patience=25)
 
-            # --- LOSO-CV (rigorous evaluation) ---
-            loso = LOSOCrossValidator(dataset, epochs=50, batch_size=32)
-            loso_results = loso.run()
+            # --- Monte Carlo Group Evaluation (30 random 70:30 subject splits) ---
+            mc = MonteCarloGroupEvaluator(dataset, epochs=50, batch_size=32)
+            mc_results = mc.run()
 
             # --- Inference example ---
             engine = JetsonInferenceEngine('best_edge_cwt_model.pth', pipeline_config)
