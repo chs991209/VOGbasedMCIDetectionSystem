@@ -1,95 +1,88 @@
 [*] 데이터 로드 중: /home/leggo/AIResearch/VOGBasedDetectionSystem/data
 [*] Processed 278 CSV files
-[XAI] Significant pixels: 12.1% (p<0.05, Welch t-test, n_HC=14, n_MCI=23)
+[XAI] Significant pixels: 14.5% (p<0.05, Welch t-test, n_HC=14, n_MCI=23)
 [+] Difference Map 저장됨: ../xai_difference_map.png
 [*] 총 5736개 CWT 샘플 (HC: 2495, MCI: 3241)
 [+] Calibration data saved: int8_calibration_data.npy  (200 tensors)
 [*] 학습 시작 (디바이스: cuda)
-[*] Train subjects: HC=12, MCI=19 | Val subjects: HC=2, MCI=4
-[*] Focal alpha — HC: 0.565, MCI: 0.435  gamma=1.5
-Epoch [01/50] | Train Acc: 44.48% | Val Acc: 38.78% | Val Loss: 0.0550 | LR: 9.99e-04
-Epoch [02/50] | Train Acc: 45.85% | Val Acc: 42.47% | Val Loss: 0.0516 | LR: 9.96e-04
-Epoch [03/50] | Train Acc: 49.75% | Val Acc: 47.42% | Val Loss: 0.0513 | LR: 9.91e-04
-Epoch [04/50] | Train Acc: 51.20% | Val Acc: 41.41% | Val Loss: 0.0529 | LR: 9.84e-04
-Epoch [05/50] | Train Acc: 52.31% | Val Acc: 46.15% | Val Loss: 0.0516 | LR: 9.76e-04
-Epoch [06/50] | Train Acc: 52.18% | Val Acc: 44.15% | Val Loss: 0.0521 | LR: 9.65e-04
-Epoch [07/50] | Train Acc: 52.98% | Val Acc: 43.52% | Val Loss: 0.0524 | LR: 9.52e-04
-Epoch [08/50] | Train Acc: 53.75% | Val Acc: 46.15% | Val Loss: 0.0515 | LR: 9.38e-04
-Epoch [09/50] | Train Acc: 52.71% | Val Acc: 47.63% | Val Loss: 0.0513 | LR: 9.22e-04
-Epoch [10/50] | Train Acc: 53.92% | Val Acc: 49.32% | Val Loss: 0.0506 | LR: 9.05e-04
-Epoch [11/50] | Train Acc: 53.67% | Val Acc: 47.42% | Val Loss: 0.0510 | LR: 8.85e-04
-Epoch [12/50] | Train Acc: 54.59% | Val Acc: 45.84% | Val Loss: 0.0519 | LR: 8.64e-04
-Epoch [13/50] | Train Acc: 54.05% | Val Acc: 49.53% | Val Loss: 0.0510 | LR: 8.42e-04
-Epoch [14/50] | Train Acc: 53.96% | Val Acc: 45.52% | Val Loss: 0.0514 | LR: 8.19e-04
-Epoch [15/50] | Train Acc: 54.89% | Val Acc: 46.36% | Val Loss: 0.0515 | LR: 7.94e-04
-Epoch [16/50] | Train Acc: 54.47% | Val Acc: 44.78% | Val Loss: 0.0530 | LR: 7.68e-04
-Epoch [17/50] | Train Acc: 55.66% | Val Acc: 46.89% | Val Loss: 0.0513 | LR: 7.41e-04
-Epoch [18/50] | Train Acc: 55.52% | Val Acc: 47.10% | Val Loss: 0.0516 | LR: 7.13e-04
-Epoch [19/50] | Train Acc: 55.70% | Val Acc: 47.21% | Val Loss: 0.0521 | LR: 6.84e-04
-Epoch [20/50] | Train Acc: 55.26% | Val Acc: 45.52% | Val Loss: 0.0521 | LR: 6.55e-04
-[Early stop] 개선 없음 10 epochs — 학습 종료.
-[+] 학습 완료. Best val loss: 0.0506 → 'best_edge_cwt_model.pth' 저장됨.
-[*] LOSO-CV 시작 — 37 subjects, device=cuda
+[*] Train subjects: HC=10, MCI=16 | Val subjects: HC=4, MCI=7
+[*] CE weight — HC: 1.149, MCI: 0.885
+Epoch [01/50] | Train Acc: 52.40% | Val Acc: 50.46% | Val Loss: 0.6914 | LR: 9.99e-04
+Epoch [02/50] | Train Acc: 53.05% | Val Acc: 50.81% | Val Loss: 0.6867 | LR: 9.96e-04
+Epoch [03/50] | Train Acc: 55.23% | Val Acc: 44.86% | Val Loss: 0.7628 | LR: 9.91e-04
+Epoch [04/50] | Train Acc: 54.40% | Val Acc: 49.31% | Val Loss: 0.6975 | LR: 9.84e-04
+Epoch [05/50] | Train Acc: 55.38% | Val Acc: 47.63% | Val Loss: 0.7299 | LR: 9.76e-04
+Epoch [06/50] | Train Acc: 55.58% | Val Acc: 52.71% | Val Loss: 0.6881 | LR: 9.65e-04
+Epoch [07/50] | Train Acc: 56.48% | Val Acc: 55.54% | Val Loss: 0.6809 | LR: 9.52e-04
+Epoch [08/50] | Train Acc: 55.65% | Val Acc: 51.21% | Val Loss: 0.6862 | LR: 9.38e-04
+Epoch [09/50] | Train Acc: 56.20% | Val Acc: 55.66% | Val Loss: 0.6833 | LR: 9.22e-04
+Epoch [10/50] | Train Acc: 55.88% | Val Acc: 53.93% | Val Loss: 0.6688 | LR: 9.05e-04
+Epoch [11/50] | Train Acc: 56.73% | Val Acc: 50.17% | Val Loss: 0.7014 | LR: 8.85e-04
+Epoch [12/50] | Train Acc: 57.23% | Val Acc: 48.04% | Val Loss: 0.7383 | LR: 8.64e-04
+Epoch [13/50] | Train Acc: 56.40% | Val Acc: 51.85% | Val Loss: 0.7001 | LR: 8.42e-04
+Epoch [14/50] | Train Acc: 56.50% | Val Acc: 49.77% | Val Loss: 0.7230 | LR: 8.19e-04
+Epoch [15/50] | Train Acc: 57.40% | Val Acc: 56.35% | Val Loss: 0.6889 | LR: 7.94e-04
+Epoch [16/50] | Train Acc: 57.90% | Val Acc: 50.17% | Val Loss: 0.6924 | LR: 7.68e-04
+Epoch [17/50] | Train Acc: 57.33% | Val Acc: 49.08% | Val Loss: 0.7189 | LR: 7.41e-04
+Epoch [18/50] | Train Acc: 57.73% | Val Acc: 51.79% | Val Loss: 0.6963 | LR: 7.13e-04
+Epoch [19/50] | Train Acc: 58.75% | Val Acc: 50.06% | Val Loss: 0.7166 | LR: 6.84e-04
+Epoch [20/50] | Train Acc: 59.33% | Val Acc: 49.60% | Val Loss: 0.7140 | LR: 6.55e-04
+Epoch [21/50] | Train Acc: 58.75% | Val Acc: 49.42% | Val Loss: 0.7245 | LR: 6.24e-04
+Epoch [22/50] | Train Acc: 59.92% | Val Acc: 52.19% | Val Loss: 0.6834 | LR: 5.94e-04
+Epoch [23/50] | Train Acc: 59.30% | Val Acc: 50.64% | Val Loss: 0.6840 | LR: 5.63e-04
+Epoch [24/50] | Train Acc: 59.52% | Val Acc: 46.65% | Val Loss: 0.7258 | LR: 5.31e-04
+Epoch [25/50] | Train Acc: 59.50% | Val Acc: 51.33% | Val Loss: 0.7013 | LR: 5.00e-04
+Epoch [26/50] | Train Acc: 60.60% | Val Acc: 49.19% | Val Loss: 0.7678 | LR: 4.69e-04
+Epoch [27/50] | Train Acc: 60.88% | Val Acc: 49.02% | Val Loss: 0.7150 | LR: 4.37e-04
+Epoch [28/50] | Train Acc: 60.98% | Val Acc: 47.46% | Val Loss: 0.7049 | LR: 4.06e-04
+Epoch [29/50] | Train Acc: 62.67% | Val Acc: 47.98% | Val Loss: 0.6960 | LR: 3.76e-04
+Epoch [30/50] | Train Acc: 61.48% | Val Acc: 45.27% | Val Loss: 0.7206 | LR: 3.45e-04
+Epoch [31/50] | Train Acc: 61.98% | Val Acc: 48.90% | Val Loss: 0.7343 | LR: 3.16e-04
+Epoch [32/50] | Train Acc: 61.62% | Val Acc: 47.52% | Val Loss: 0.7387 | LR: 2.87e-04
+Epoch [33/50] | Train Acc: 62.30% | Val Acc: 48.56% | Val Loss: 0.7313 | LR: 2.59e-04
+Epoch [34/50] | Train Acc: 63.02% | Val Acc: 48.44% | Val Loss: 0.7527 | LR: 2.32e-04
+Epoch [35/50] | Train Acc: 63.20% | Val Acc: 48.50% | Val Loss: 0.7370 | LR: 2.06e-04
+[Early stop] 개선 없음 25 epochs — 학습 종료.
+[+] 학습 완료. Best val loss: 0.6688 → 'best_edge_cwt_model.pth' 저장됨.
+[*] Stratified Monte Carlo Group Eval — 30 splits, device=cuda
 
-  [01/37] ✓  True=HC   Pred=HC   MCI_prob=0.471  epochs= 196  (20240627_083104_1722132_)
-  [02/37] ✓  True=HC   Pred=HC   MCI_prob=0.469  epochs= 196  (20240709_083459_2025307_)
-  [03/37] ✓  True=HC   Pred=HC   MCI_prob=0.452  epochs= 177  (20240329_101344_493078_)
-  [04/37] ✓  True=HC   Pred=HC   MCI_prob=0.488  epochs= 197  (20240329_084111_1324721_)
-  [05/37] ✗  True=HC   Pred=MCI  MCI_prob=0.520  epochs= 159  (20241011_105132_853338_)
-  [06/37] ✗  True=HC   Pred=MCI  MCI_prob=0.527  epochs= 131  (20250612_100903_584743_)
-  [07/37] ✓  True=HC   Pred=HC   MCI_prob=0.464  epochs= 180  (20240329_094040_1073209_)
-  [08/37] ✓  True=HC   Pred=HC   MCI_prob=0.438  epochs= 195  (20240613_084041_1533202_)
-  [09/37] ✓  True=HC   Pred=HC   MCI_prob=0.430  epochs= 177  (20240705_102008_1149257_)
-  [10/37] ✓  True=HC   Pred=HC   MCI_prob=0.472  epochs= 180  (20240830_093351_951161_)
-  [11/37] ✓  True=HC   Pred=HC   MCI_prob=0.445  epochs= 169  (20240830_103408_1926067_)
-  [12/37] ✓  True=HC   Pred=HC   MCI_prob=0.458  epochs= 179  (20240416_133414_1187418_)
-  [13/37] ✓  True=HC   Pred=HC   MCI_prob=0.438  epochs= 191  (20240507_083503_2054190_)
-  [14/37] ✓  True=HC   Pred=HC   MCI_prob=0.488  epochs= 168  (20240709_095414_798388_)
-  [15/37] ✓  True=MCI  Pred=MCI  MCI_prob=0.563  epochs= 137  (20251223_131850_1523559_)
-  [16/37] ✗  True=MCI  Pred=HC   MCI_prob=0.431  epochs= 150  (20250701_091148_644377_)
-  [17/37] ✗  True=MCI  Pred=HC   MCI_prob=0.466  epochs= 109  (20250917_084851_1188823_)
-  [18/37] ✓  True=MCI  Pred=MCI  MCI_prob=0.549  epochs= 163  (20250910_083538_1921220_)
-  [19/37] ✗  True=MCI  Pred=HC   MCI_prob=0.484  epochs= 165  (20251015_092729_1525484_)
-  [20/37] ✗  True=MCI  Pred=HC   MCI_prob=0.458  epochs= 156  (20260120_085825_1208201_)
-  [21/37] ✗  True=MCI  Pred=HC   MCI_prob=0.469  epochs= 134  (20251202_152715_460427_)
-  [22/37] ✗  True=MCI  Pred=HC   MCI_prob=0.489  epochs= 104  (20260224_093854_1212626_)
-  [23/37] ✗  True=MCI  Pred=HC   MCI_prob=0.449  epochs= 146  (20251231_142955_1588893_)
-  [24/37] ✓  True=MCI  Pred=MCI  MCI_prob=0.515  epochs= 120  (20251112_091044_895787_)
-  [25/37] ✗  True=MCI  Pred=HC   MCI_prob=0.450  epochs= 150  (20250814_111814_819327_)
-  [26/37] ✓  True=MCI  Pred=MCI  MCI_prob=0.501  epochs= 162  (20250826_085849_1502340_)
-  [27/37] ✗  True=MCI  Pred=HC   MCI_prob=0.470  epochs= 137  (20260324_091656_1959999)
-  [28/37] ✗  True=MCI  Pred=HC   MCI_prob=0.477  epochs= 145  (20260225_142456_1486695)
-  [29/37] ✗  True=MCI  Pred=HC   MCI_prob=0.490  epochs= 141  (20260311_094118_984956)
-  [30/37] ✓  True=MCI  Pred=MCI  MCI_prob=0.547  epochs= 136  (20260317_093419_1012933)
-  [31/37] ✓  True=MCI  Pred=MCI  MCI_prob=0.566  epochs= 142  (20260204_134719_1968714)
-  [32/37] ✗  True=MCI  Pred=HC   MCI_prob=0.479  epochs= 147  (20260310_090536_1517154)
-  [33/37] ✗  True=MCI  Pred=HC   MCI_prob=0.464  epochs= 124  (20260421_091245_1871077)
-  [34/37] ✗  True=MCI  Pred=HC   MCI_prob=0.472  epochs= 159  (20260127_134745_1477026)
-  [35/37] ✗  True=MCI  Pred=HC   MCI_prob=0.476  epochs= 168  (20260415_084829_2091974)
-  [36/37] ✗  True=MCI  Pred=HC   MCI_prob=0.484  epochs= 130  (20260128_084616_972310)
-  [37/37] ✓  True=MCI  Pred=MCI  MCI_prob=0.505  epochs= 116  (20260325_084718_1491320)
+  [01/30] Acc=0.700  Sens=1.000  Spec=0.000  AUROC=0.571
+  [02/30] Acc=0.500  Sens=0.429  Spec=0.667  AUROC=0.429
+  [03/30] Acc=0.400  Sens=0.286  Spec=0.667  AUROC=0.571
+  [04/30] Acc=0.700  Sens=0.857  Spec=0.333  AUROC=0.714
+  [05/30] Acc=0.600  Sens=0.429  Spec=1.000  AUROC=0.714
+  [06/30] Acc=0.800  Sens=0.714  Spec=1.000  AUROC=0.714
+  [07/30] Acc=0.500  Sens=0.571  Spec=0.333  AUROC=0.524
+  [08/30] Acc=0.400  Sens=0.143  Spec=1.000  AUROC=0.667
+  [09/30] Acc=0.700  Sens=0.857  Spec=0.333  AUROC=0.476
+  [10/30] Acc=0.400  Sens=0.429  Spec=0.333  AUROC=0.333
+  [11/30] Acc=0.500  Sens=0.429  Spec=0.667  AUROC=0.476
+  [12/30] Acc=0.700  Sens=0.857  Spec=0.333  AUROC=0.762
+  [13/30] Acc=0.600  Sens=0.714  Spec=0.333  AUROC=0.524
+  [14/30] Acc=0.600  Sens=0.857  Spec=0.000  AUROC=0.333
+  [15/30] Acc=0.500  Sens=0.286  Spec=1.000  AUROC=0.667
+  [16/30] Acc=0.600  Sens=0.857  Spec=0.000  AUROC=0.333
+  [17/30] Acc=0.400  Sens=0.429  Spec=0.333  AUROC=0.286
+  [18/30] Acc=0.600  Sens=0.714  Spec=0.333  AUROC=0.571
+  [19/30] Acc=0.500  Sens=0.429  Spec=0.667  AUROC=0.476
+  [20/30] Acc=0.500  Sens=0.571  Spec=0.333  AUROC=0.524
+  [21/30] Acc=0.500  Sens=0.714  Spec=0.000  AUROC=0.524
+  [22/30] Acc=0.300  Sens=0.143  Spec=0.667  AUROC=0.571
+  [23/30] Acc=0.500  Sens=0.429  Spec=0.667  AUROC=0.524
+  [24/30] Acc=0.200  Sens=0.143  Spec=0.333  AUROC=0.429
+  [25/30] Acc=0.700  Sens=0.714  Spec=0.667  AUROC=0.571
+  [26/30] Acc=0.400  Sens=0.286  Spec=0.667  AUROC=0.667
+  [27/30] Acc=0.300  Sens=0.143  Spec=0.667  AUROC=0.571
+  [28/30] Acc=0.500  Sens=0.571  Spec=0.333  AUROC=0.619
+  [29/30] Acc=0.600  Sens=0.429  Spec=1.000  AUROC=0.714
+  [30/30] Acc=0.700  Sens=0.857  Spec=0.333  AUROC=0.667
 
-========================================================
-  LOSO-CV  Summary
-========================================================
-  Subjects     : 37  (HC=14, MCI=23)
-  ── Threshold = 0.50 (default) ──
-  Accuracy     : 0.514   (19/37)
-  Sensitivity  : 0.304   TP=7  FN=16
-  Specificity  : 0.857   TN=12  FP=2
-  Balanced Acc : 0.581
-  AUROC        : 0.680
-  ── Threshold = 0.47 (optimised for balanced acc) ──
-  Accuracy     : 0.649   (24/37)
-  Sensitivity  : 0.696   TP=16  FN=7
-  Specificity  : 0.571   TN=8  FP=6
-  Balanced Acc : 0.634
-========================================================
-[+] Saved: ../loso_results.png
+============================================================
+  Stratified Monte Carlo Eval (Acc: 0.530 ± 0.139)
+============================================================
 [!] TRT init failed (No module named 'cuda') — falling back to PyTorch
 
 [*] 추론 시작: PD VOG -_Horizontal Saccade B.csv
 [>] Saccade 이벤트 수: 9
 [>] 앙상블 진단: Healthy Control (HC)
-[>] MCI 확률: 46.40%
-[EXIT: 0]
+[>] MCI 확률: 47.42%
