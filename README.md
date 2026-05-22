@@ -281,5 +281,3 @@ cd ~/AIResearch/VOGBasedDetectionSystem/src
     wavelet_transform_detection.py > ../pipeline_run_new.log 2>&1 &
 tail -f ../pipeline_run_new.log
 ```
-
-A parallel experimental environment is available at `~/AIResearch/VOGBasedDetectionSystemExperimental/`, sharing the same data via symlink but with an isolated source tree for ablation studies.
